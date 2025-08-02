@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, FormEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPaperPlane, faRobot, faUser } from '@fortawesome/free-solid-svg-icons';
+import { faPaperPlane, faRobot, faUser, faMicrophone } from '@fortawesome/free-solid-svg-icons';
+import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 
 interface Message {
   id: number;
@@ -16,6 +17,16 @@ export default function Home() {
   ]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const {
+    transcript,
+    listening,
+    resetTranscript,
+    browserSupportsSpeechRecognition
+  } = useSpeechRecognition();
+
+  useEffect(() => {
+    setInput(transcript);
+  }, [transcript]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -30,6 +41,7 @@ export default function Home() {
     const newUserMessage: Message = { id: messages.length + 1, text: input, sender: 'user' };
     setMessages((prevMessages) => [...prevMessages, newUserMessage]);
     setInput('');
+    resetTranscript();
 
     try {
       const response = await fetch('/api/chat', {
@@ -53,6 +65,25 @@ export default function Home() {
       setMessages((prevMessages) => [...prevMessages, errorMessage]);
     }
   };
+
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const handleVoiceClick = () => {
+    if (listening) {
+      SpeechRecognition.stopListening();
+    } else {
+      resetTranscript();
+      SpeechRecognition.startListening({ continuous: true });
+    }
+  };
+
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-pink-900 text-white font-sans">
@@ -96,9 +127,16 @@ export default function Home() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
+            placeholder={listening ? 'Listening...' : 'Type your message...'}
             className="flex-1 p-3 rounded-lg bg-gray-700 bg-opacity-50 border border-gray-600 focus:outline-none focus:border-purple-500 text-white placeholder-gray-400"
           />
+          <button
+            type="button"
+            onClick={handleVoiceClick}
+            className={`${listening ? 'text-red-500' : 'text-white'} bg-purple-600 hover:bg-purple-700 p-3 rounded-lg transition duration-300 ease-in-out transform hover:scale-105`}
+          >
+            <FontAwesomeIcon icon={faMicrophone} />
+          </button>
           <button
             type="submit"
             className="bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-lg transition duration-300 ease-in-out transform hover:scale-105"

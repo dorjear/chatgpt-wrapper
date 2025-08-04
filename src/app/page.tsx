@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect, FormEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPaperPlane, faRobot, faUser, faMicrophone } from '@fortawesome/free-solid-svg-icons';
+import { faPaperPlane, faRobot, faUser, faMicrophone, faRecordVinyl } from '@fortawesome/free-solid-svg-icons';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
+import MicRecorder from 'mic-recorder-to-mp3';
 
 interface Message {
   id: number;
@@ -11,11 +12,14 @@ interface Message {
   sender: 'user' | 'bot';
 }
 
+const recorder = new MicRecorder({ bitRate: 128 });
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([
     { id: 1, text: 'Hello! How can I help you today?', sender: 'bot' },
   ]);
   const [input, setInput] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const {
     transcript,
@@ -81,8 +85,60 @@ export default function Home() {
     }
   };
 
+  const handleRecordClick = () => {
+    if (isRecording) {
+      recorder.stop().getMp3().then(async ([buffer, blob]) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = async () => {
+          const base64Audio = (reader.result as string).split(',')[1];
+
+          const userMessageText = input || "Audio message";
+          const newUserMessage: Message = { id: messages.length + 1, text: userMessageText, sender: 'user' };
+          setMessages((prevMessages) => [...prevMessages, newUserMessage]);
+          setInput('');
+
+          try {
+            const response = await fetch('/api/chat/audio-completion', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                audio: base64Audio,
+                messages: [...messages, newUserMessage].map(msg => ({ role: msg.sender === 'user' ? 'user' : 'assistant', content: msg.text }))
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const botResponse: Message = { id: messages.length + 2, text: data.response, sender: 'bot' };
+            setMessages((prevMessages) => [...prevMessages, botResponse]);
+
+          } catch (error) {
+            console.error('Error sending audio for completion:', error);
+            const errorMessage: Message = { id: messages.length + 2, text: 'Error: Could not process the audio.', sender: 'bot' };
+            setMessages((prevMessages) => [...prevMessages, errorMessage]);
+          }
+        };
+      }).catch((e: any) => console.error(e));
+      setIsRecording(false);
+    } else {
+      recorder.start().then(() => {
+        setIsRecording(true);
+      }).catch((e: any) => console.error(e));
+    }
+  };
+
   if (!isMounted) {
     return null;
+  }
+
+  if (!browserSupportsSpeechRecognition) {
+    return <span>Browser doesn't support speech recognition.</span>;
   }
 
   return (
@@ -136,6 +192,13 @@ export default function Home() {
             className={`${listening ? 'text-red-500' : 'text-white'} bg-purple-600 hover:bg-purple-700 p-3 rounded-lg transition duration-300 ease-in-out transform hover:scale-105`}
           >
             <FontAwesomeIcon icon={faMicrophone} />
+          </button>
+          <button
+            type="button"
+            onClick={handleRecordClick}
+            className={`${isRecording ? 'text-red-500' : 'text-white'} bg-purple-600 hover:bg-purple-700 p-3 rounded-lg transition duration-300 ease-in-out transform hover:scale-105`}
+          >
+            <FontAwesomeIcon icon={faRecordVinyl} />
           </button>
           <button
             type="submit"
